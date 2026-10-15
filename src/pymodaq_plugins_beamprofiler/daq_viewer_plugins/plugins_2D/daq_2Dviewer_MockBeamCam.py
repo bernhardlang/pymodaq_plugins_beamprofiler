@@ -33,8 +33,8 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
 
     """
     device_params = [
-        { 'title': 'X Pixels', 'name': 'xpix', 'type': 'int', 'default': 256 },
-        { 'title': 'Y Pixels', 'name': 'ypix', 'type': 'int', 'default': 256 },
+        { 'title': 'X Pixels', 'name': 'nx', 'type': 'int', 'default': 256 },
+        { 'title': 'Y Pixels', 'name': 'ny', 'type': 'int', 'default': 256 },
         { 'title': 'X0', 'name': 'x0', 'type': 'float', 'default': 128 },
         { 'title': 'Y0', 'name': 'y0', 'type': 'float', 'default': 128 },
         { 'title': 'DX', 'name': 'dx', 'type': 'float', 'default': 10 },
@@ -68,19 +68,28 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
             False if initialization failed otherwise True
         """
         if self.is_master:
-            self.controller = MockBeamCam()
+            self.controller = \
+                MockBeamCam(self.settings['nx'],
+                            self.settings['ny'],
+                            self.settings['x0'],
+                            self.settings['y0'],
+                            self.settings['dx'],
+                            self.settings['dy'],
+                            self.settings['angle'],
+                            self.settings['i0'])
             initialized = self.controller.open_communication()
         else:
             self.controller = controller
             initialized = True
 
+        data = self.controller.grab_image()
         data_x_axis = self.controller.x_axis()  # if possible
         self.x_axis = Axis(data=data_x_axis, label='', units='', index=1)
 
         data_y_axis = self.controller.y_axis()  # if possible
         self.y_axis = Axis(data=data_y_axis, label='', units='', index=0)
 
-        dfp = DataFromPlugins(name='MockBeam', data=["2D numpy array"],
+        dfp = DataFromPlugins(name='MockBeam', data=[data],
                               dim='Data2D', labels=['dat0'],
                               axes=[self.x_axis, self.y_axis])
         self.dte_signal_temp.emit(DataToExport('mockbeamcam', data=[dfp]))
@@ -103,9 +112,6 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         kwargs: dict
             others optionals arguments
         """
-        ## TODO for your custom plugin: you should choose EITHER the synchrone or the asynchrone version following
-
-        ##synchrone version (blocking function)
         data = self.controller.grab_image()
         dfp = DataFromPlugins(name='Mock1', data=data, dim='Data2D',
                               labels=['label1'],

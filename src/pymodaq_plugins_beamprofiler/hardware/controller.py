@@ -6,8 +6,8 @@ from pymodaq_utils.math_utils import gauss1D
 @dataclass
 class MockBeamCam:
 
-    xpix:  int
-    ypix:  int
+    nx:  int
+    ny:  int
     x0:    int
     y0:    int
     dx:    float
@@ -21,24 +21,29 @@ class MockBeamCam:
     def open_communication(self):
         return True
 
-    def grab_data(self, Naverage=1, **kwargs):
+    def grab_image(self, Naverage=1, **kwargs):
         return np.random.poisson(self.data * self.i0)
 
+    def x_axis(self):
+        return self.x
+
+    def y_axis(self):
+        return self.y
+
     def update(self):
-        self.x_axis = np.linspace(0, self.xpix - 1, self.xpix)
-        self.y_axis = np.linspace(0, self.ypix - 1, self.ypix)
+        self.x = np.linspace(0, self.nx - 1, self.nx)
+        self.y = np.linspace(0, self.ny - 1, self.ny)
         if self.angle == 0:
-            self.data = np.transpose(np.outer(gauss1D(self.x_axis, self.x0,
-                                                      self.dx, 1),
-                                              gauss1D(self.y_axis, self.y0,
-                                                      self.dy, 1)))
+            self.data = \
+                np.transpose(np.outer(gauss1D(self.x, self.x0, self.dx, 1),
+                                      gauss1D(self.y, self.y0, self.dy, 1)))
         else:
-            x, y = np.meshgrid(np.arange(nx), np.arange(ny))
+            self.x, self.y = np.meshgrid(np.arange(self.nx), np.arange(self.ny))
             sigma_x = dx / (2 * np.sqrt(2 * np.log(2)))
             sigma_y = dy / (2 * np.sqrt(2 * np.log(2)))
-            alpha = np.radians(angle)
+            alpha = np.radians(self.angle)
             sin_a = np.sin(alpha)
             cos_a = np.cos(alpha)
-            u = (x - x0) * cos_a + (y - y0) * sin_a
-            v = -(x - x0) * sin_a + (y - y0) * cos_a
+            u = (self.x - x0) * cos_a + (self.y - y0) * sin_a
+            v = -(self.x - x0) * sin_a + (self.y - y0) * cos_a
             self.data = np.exp(-0.5 * ((u / sigma_x)**2 + (v / sigma_y)**2))
