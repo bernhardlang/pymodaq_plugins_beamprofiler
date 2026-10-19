@@ -1,10 +1,11 @@
 from qtpy import QtWidgets
-
+from qtpy.QtCore import QSettings, QByteArray
+from pymodaq_data.data import DataToExport
 from pymodaq_gui import utils as gutils
 from pymodaq_gui.plotting.data_viewers.viewer2D import Viewer2D
 from pymodaq_gui.utils.widgets.lcd import LCD
 from pymodaq.control_modules.daq_viewer import DAQ_Viewer
-from pymodaq_utils.config import GlobalConfig
+from pymodaq_utils.config import GlobalConfig, get_set_config_dir
 from pymodaq_utils.logger import set_logger, get_module_name
 from pymodaq.utils.custom_ext import CustomExt
 
@@ -14,6 +15,98 @@ config = GlobalConfig()
 
 EXTENSION_NAME = 'BeamProfiler'
 CLASS_NAME = 'BeamProfilerExtension'
+
+
+#>>> can be dropped as soon as the corresponding PR is in the main branch
+from typing import List
+import numpy as np
+from qtpy.QtCore import QObject
+from pymodaq_gui.plotting.data_viewers.viewer0D import Viewer0D
+
+class MyLCD(QObject):
+
+    def __init__(self, parent: QtWidgets.QWidget, **kwargs):
+        super().__init__()
+        self.Nvals = None
+        self.labels = None
+        self.parent = parent
+        self.viewer0D = None
+        self.digits = 3
+        self.setupui(**kwargs)
+
+    def setvalues(self, values: List[np.ndarray]):
+        """
+        display values on lcds
+        Parameters
+        ----------
+        values: list of 0D ndarray
+
+        Returns
+        -------
+
+        """
+        while len(values) < self.Nvals:
+            values.append(np.array([0.]))
+        if len(values) > self.Nvals:
+            values = values[:self.Nvals]
+        vals = []
+        for ind, val in enumerate(values):
+            self.lcds[ind].display(val[0])
+            vals.append(val)
+        self.viewer0D.show_data(DataRaw(name='LCD', data=values))
+
+    def setupui(self, **kwargs):
+        if 'digits' in kwargs:
+            self.digits = kwargs['digits']
+        if 'Nvals' in kwargs:
+            self.Nvals = kwargs['Nvals']
+        else:
+            self.Nvals = 1
+        if 'labels' in kwargs:
+            self.labels = kwargs['labels']
+        else:
+            self.labels = ['CH{:d}'.format(ind) for ind in range(self.Nvals)]
+
+        while len(self.labels) < self.Nvals:
+            self.labels.append('')
+
+        vlayout = QtWidgets.QVBoxLayout()
+        self.hsplitter = QtWidgets.QSplitter()
+        vlayout.addWidget(self.hsplitter)
+        self.parent.setLayout(vlayout)
+        form = QtWidgets.QWidget()
+        self.viewer0D = Viewer0D(form)
+        self.viewer0D.labels = self.labels
+
+        vlayout = QtWidgets.QVBoxLayout()
+
+        lcd_layouts = []
+        labels = []
+        self.lcds = []
+
+        for ind in range(self.Nvals):
+            lcd_layouts.append(QtWidgets.QVBoxLayout())
+            labels.append(QtWidgets.QLabel(self.labels[ind]))
+            labels[-1].setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                     QtWidgets.QSizePolicy.Maximum)
+            self.lcds.append(QtWidgets.QLCDNumber())
+            self.lcds[-1].setDigitCount(self.digits)
+            lcd_layouts[-1].addWidget(labels[-1])
+            lcd_layouts[-1].addWidget(self.lcds[-1])
+            vlayout.addLayout(lcd_layouts[-1])
+
+            if ind != self.Nvals - 1:
+                hFrame = QtWidgets.QFrame()
+                hFrame.setFrameShape(QtWidgets.QFrame.HLine)
+                vlayout.addWidget(hFrame)
+
+        lcd_widget = QtWidgets.QWidget()
+        lcd_widget.setLayout(vlayout)
+        self.hsplitter.addWidget(lcd_widget)
+        self.hsplitter.addWidget(form)
+        self.parent.resize(800, 500)
+        self.hsplitter.setSizes([400, 300])    
+#<<<
 
 
 class BeamProfilerExtension(CustomExt):
@@ -26,6 +119,10 @@ class BeamProfilerExtension(CustomExt):
     def __init__(self, parent: gutils.DockArea, dashboard):
         super().__init__(parent, dashboard, add_toolbar_break=False)
         self.setup_ui()
+        config_dir = get_set_config_dir("gui-state", user=True)
+        settings_file_name = f'{config_dir}/{EXTENSION_NAME}.conf'
+        self.qt_settings = QSettings(settings_file_name, QSettings.NativeFormat)
+        self.read_settings(self.qt_settings)
 
     def setup_docks_and_widgets(self):
         self.docks['settings'] = gutils.Dock('Settings')
@@ -41,8 +138,8 @@ class BeamProfilerExtension(CustomExt):
         self.dockarea.addDock(self.docks['lcds'], 'right',
                               self.docks['viewer2D'])
         self.lcd = \
-            LCD(QtWidgets.QWidget(), Nvals=5,
-                labels=['X', 'Y', 'dx', 'dy', 'theta'])
+            MyLCD(QtWidgets.QWidget(), Nvals=5,
+                  labels=['X', 'Y', 'dx', 'dy', 'theta'])
         self.docks['lcds'].addWidget(self.lcd.parent)
 
         cam_window = QtWidgets.QMainWindow()
@@ -65,15 +162,15 @@ class BeamProfilerExtension(CustomExt):
         """
         # adds a second toolbar, the Dashboard one: show/hide the Dashboard,
         # load an experiment and a state
-        self.create_dashboard_toolbar(add_break=False)
+        #self.create_dashboard_toolbar(add_break=False)
         file_menu = self.add_menu('file', 'File', parent_menu=menubar)
 
     def setup_actions(self):
-        self.add_action('start_profiling', 'start profiling', 'add_circle',
+        self.add_action('start_profiling', 'start profiling', 'videocam',
             tip='Start continuous run')
-        self.add_action('stop_profiling', 'stop profiling', 'minus_circle',
+        self.add_action('snap', 'snap', 'step', tip='Record one image')
+        self.add_action('stop_profiling', 'stop profiling', 'stop',
             tip='Stop continuous run')
-        self.add_action('snap', 'snap', 'add_circle', tip='Record one image')
 
     def connect_things(self):
         self.connect_action('start_profiling', self.start_profiling)
@@ -105,11 +202,27 @@ class BeamProfilerExtension(CustomExt):
         """
         pass
 
+    def read_settings(self, qt_settings):
+        geometry = qt_settings.value("geometry", QByteArray())
+        self.mainwindow.restoreGeometry(geometry)
+        state = qt_settings.value("dockarea", None)
+        if state is not None:
+            try:
+                self.dockarea.restoreState(state)
+            except: # pyqtgraph's state restoring is not very fail safe
+                # erase inconsistent settings in case pyqtgraph trips
+                qt_settings.setValue("dockarea", None)
+        state = qt_settings.value("splitter")
+        if state is not None:
+            self.lcd.hsplitter.restoreState(state)
+
+    def write_settings(self, qt_settings):
+        qt_settings.setValue("geometry", self.mainwindow.saveGeometry())
+        qt_settings.setValue("dockarea", self.dockarea.saveState())
+        qt_settings.setValue("splitter", self.lcd.hsplitter.saveState())
+
     def _quit_fun(self) -> bool:
-        """Called when the extension is closed. Return True to let it quit,
-        False to refuse (for instance while running). The base class returns
-        None, which would prevent the extension from closing.
-        """
+        self.write_settings(self.qt_settings)
         return True
 
     def snap(self):
