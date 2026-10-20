@@ -8,6 +8,9 @@ from pymodaq.control_modules.daq_viewer import DAQ_Viewer
 from pymodaq_utils.config import GlobalConfig, get_set_config_dir
 from pymodaq_utils.logger import set_logger, get_module_name
 from pymodaq.utils.custom_ext import CustomExt
+from pymodaq.utils.managers.modules import ModuleType
+from pymodaq_data.data import DataRaw
+import laserbeamsize as lbs
 
 logger = set_logger(get_module_name(__file__))
 
@@ -149,20 +152,7 @@ class BeamProfilerExtension(CustomExt):
             DAQ_Viewer(dockarea, title='BSCamera', daq_type='DAQ2D')
 
     def setup_menus_and_toolbars(self, menubar: QtWidgets.QMenuBar = None):
-        """Non mandatory method to be subclassed in order to create menus
-        and toolbars
-
-        Examples
-        --------
-        >>>file_menu = self.add_menu('file', 'File', parent_menu=menubar)
-
-        See Also
-        --------
-        pymodaq.utils.managers.action_manager.ActionManager
-        """
-        # adds a second toolbar, the Dashboard one: show/hide the Dashboard,
-        # load an experiment and a state
-        #self.create_dashboard_toolbar(add_break=False)
+        self.create_dashboard_toolbar(add_break=False)
         file_menu = self.add_menu('file', 'File', parent_menu=menubar)
 
     def setup_actions(self):
@@ -175,6 +165,7 @@ class BeamProfilerExtension(CustomExt):
     def connect_things(self):
         self.connect_action('start_profiling', self.start_profiling)
         self.connect_action('snap', self.snap)
+        self.connect_action('stop_profiling', self.stop_profiling)
 
     def do_things_after_experiment_set(self, experiment_name: str,
                                        show_dashboard: bool = None):
@@ -182,7 +173,7 @@ class BeamProfilerExtension(CustomExt):
         self.camera = \
             self.modules_manager.get_mod_from_name('Beam-Camera',
                                                    ModuleType.Detector)
-        self.camera.grab_done.connect(self.take_data)
+        self.camera.grab_done_signal.connect(self.take_data)
 
     def value_changed(self, param):
         """ Actions to perform when one of the param's value in self.settings
@@ -229,13 +220,19 @@ class BeamProfilerExtension(CustomExt):
         pass
 
     def start_profiling(self):
-        pass
+        self.camera.grab()
 
     def stop_profiling(self):
-        pass
+        self.camera.stop_grab()
 
     def take_data(self, data: DataToExport):
-        pass
+        dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
+        dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
+
+        values = [np.array([val]) for val in lbs.beam_size(dwa2D[0])]
+
+        self.target_viewer.show_data(dwa2D)
+        self.lcd.setvalues(values)
 
 
 def main():

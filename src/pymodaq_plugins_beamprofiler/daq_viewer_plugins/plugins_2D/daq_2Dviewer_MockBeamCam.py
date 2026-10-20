@@ -1,5 +1,6 @@
 import numpy as np
 
+from qtpy.QtCore import QThread
 from pymodaq_utils.utils import ThreadCommand
 from pymodaq_data.data import DataToExport, Axis
 from pymodaq_gui.parameter import Parameter
@@ -112,6 +113,7 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         kwargs: dict
             others optionals arguments
         """
+        QThread.msleep(10)
         data = self.controller.grab_image()
         dfp = DataFromPlugins(name='Mock1', data=data, dim='Data2D',
                               labels=['label1'],
