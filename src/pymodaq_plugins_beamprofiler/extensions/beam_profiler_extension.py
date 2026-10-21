@@ -224,7 +224,7 @@ class BeamProfilerExtension(CustomExt):
         self._actions["stop_profiling"].setEnabled(measuring)
         
     def snap(self):
-        pass
+        self.camera.snap()
 
     def start_profiling(self):
         self.adjust_actions(True)

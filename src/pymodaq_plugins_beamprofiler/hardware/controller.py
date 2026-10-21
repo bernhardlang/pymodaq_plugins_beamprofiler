@@ -41,7 +41,7 @@ class MockBeamCam:
         self.y0 = self.y00 + self.noise_y[self.current]
         self.dx = max(1, self.dx0 + 2 * self.noise_dx[self.current])
         self.dy = max(1, self.dy0 + 2 * self.noise_dy[self.current])
-        self.angle = max(1, self.angle0 + 2 * self.noise_angle[self.current])
+        #self.angle = max(1, self.angle0 + 2 * self.noise_angle[self.current])
         self.update()
         self.current += 1
         if self.current == 2**16:
@@ -63,11 +63,11 @@ class MockBeamCam:
                                       gauss1D(self.y, self.y0, self.dy, 1)))
         else:
             self.x, self.y = np.meshgrid(np.arange(self.nx), np.arange(self.ny))
-            sigma_x = dx / (2 * np.sqrt(2 * np.log(2)))
-            sigma_y = dy / (2 * np.sqrt(2 * np.log(2)))
+            sigma_x = self.dx / (2 * np.sqrt(2 * np.log(2)))
+            sigma_y = self.dy / (2 * np.sqrt(2 * np.log(2)))
             alpha = np.radians(self.angle)
             sin_a = np.sin(alpha)
             cos_a = np.cos(alpha)
-            u = (self.x - x0) * cos_a + (self.y - y0) * sin_a
-            v = -(self.x - x0) * sin_a + (self.y - y0) * cos_a
+            u = (self.x - self.x0) * cos_a + (self.y - y0) * sin_a
+            v = -(self.x - self.x0) * sin_a + (self.y - y0) * cos_a
             self.data = np.exp(-0.5 * ((u / sigma_x)**2 + (v / sigma_y)**2))
