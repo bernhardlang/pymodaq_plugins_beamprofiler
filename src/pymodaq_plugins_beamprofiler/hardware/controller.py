@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
+import colorednoise as cn
 from pymodaq_utils.math_utils import gauss1D
 
 
@@ -17,11 +18,34 @@ class MockBeamCam:
     
     def __post_init__(self):
         self.update()
+        self.x00 = self.x0
+        self.y00 = self.y0
+        self.dx0 = self.dx
+        self.dy0 = self.dy
+        self.angle0 = self.angle
+        self._init_noise()
+
+    def _init_noise(self):
+        self.noise_x = cn.powerlaw_psd_gaussian(1, 2**16)
+        self.noise_y = cn.powerlaw_psd_gaussian(1, 2**16)
+        self.noise_dx = cn.powerlaw_psd_gaussian(1, 2**16)
+        self.noise_dy = cn.powerlaw_psd_gaussian(1, 2**16)
+        self.noise_angle = cn.powerlaw_psd_gaussian(1, 2**16)
+        self.current = 0
 
     def open_communication(self):
         return True
 
     def grab_image(self, Naverage=1, **kwargs):
+        self.x0 = self.x00 + self.noise_x[self.current]
+        self.y0 = self.y00 + self.noise_y[self.current]
+        self.dx = max(1, self.dx0 + 2 * self.noise_dx[self.current])
+        self.dy = max(1, self.dy0 + 2 * self.noise_dy[self.current])
+        self.angle = max(1, self.angle0 + 2 * self.noise_angle[self.current])
+        self.update()
+        self.current += 1
+        if self.current == 2**16:
+            self._init_noise()
         return np.random.poisson(self.data * self.i0)
 
     def x_axis(self):

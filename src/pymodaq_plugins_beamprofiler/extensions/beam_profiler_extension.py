@@ -161,6 +161,7 @@ class BeamProfilerExtension(CustomExt):
         self.add_action('snap', 'snap', 'step', tip='Record one image')
         self.add_action('stop_profiling', 'stop profiling', 'stop',
             tip='Stop continuous run')
+        self.adjust_actions(False)
 
     def connect_things(self):
         self.connect_action('start_profiling', self.start_profiling)
@@ -216,13 +217,21 @@ class BeamProfilerExtension(CustomExt):
         self.write_settings(self.qt_settings)
         return True
 
+    def adjust_actions(self, measuring):
+        self.docks['settings'].setEnabled(not measuring)
+        self._actions["start_profiling"].setEnabled(not measuring)
+        self._actions["snap"].setEnabled(not measuring)
+        self._actions["stop_profiling"].setEnabled(measuring)
+        
     def snap(self):
         pass
 
     def start_profiling(self):
+        self.adjust_actions(True)
         self.camera.grab()
 
     def stop_profiling(self):
+        self.adjust_actions(False)
         self.camera.stop_grab()
 
     def take_data(self, data: DataToExport):
@@ -245,17 +254,21 @@ def main():
     import sys
     from pymodaq_gui.qt_utils import mkQApp
     from pymodaq.dashboard import load_dashboard_with_arguments
+    from pymodaq.dashboard import load_dashboard_with_experiment
     from pymodaq.utils.gui_utils.loader_utils import create_extension
 
     app = mkQApp('Custom Ext')
 
     win, dashboard, _ = load_dashboard_with_arguments(show_dashboard=False,
-                                                      load_extension=False,
+                                                      load_extension=True,
                                                       )
-    win.mainwindow.setVisible(False)
-
     win_ext, ext = \
         create_extension(dashboard, BeamProfilerExtension, show_extension=True)
+
+    win.mainwindow.setVisible(False)
+
+    app.lastWindowClosed.connect(dashboard.quit_fun)
+
     sys.exit(app.exec())
 
 
