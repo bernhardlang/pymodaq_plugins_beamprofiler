@@ -119,7 +119,8 @@ class BeamProfilerExtension(CustomExt):
           'min': 0.1, 'default': 1 },
     ]
 
-    def __init__(self, parent: gutils.DockArea, dashboard):
+    def __init__(self, parent: gutils.DockArea, dashboard,
+                 with_dashboard_toolbar=True):
         super().__init__(parent, dashboard, add_toolbar_break=False)
         self.setup_ui()
         config_dir = get_set_config_dir("gui-state", user=True)
@@ -149,10 +150,10 @@ class BeamProfilerExtension(CustomExt):
         dockarea = gutils.DockArea()
         cam_window.setCentralWidget(dockarea)
         self.camera_viewer = \
-            DAQ_Viewer(dockarea, title='BSCamera', daq_type='DAQ2D')
+            DAQ_Viewer(dockarea, title='Camera', daq_type='DAQ2D')
 
     def setup_menus_and_toolbars(self, menubar: QtWidgets.QMenuBar = None):
-        self.create_dashboard_toolbar(add_break=False)
+        #self.create_dashboard_toolbar(add_break=False)
         file_menu = self.add_menu('file', 'File', parent_menu=menubar)
 
     def setup_actions(self):
@@ -263,11 +264,10 @@ def main():
                                                       load_extension=True,
                                                       )
     win_ext, ext = \
-        create_extension(dashboard, BeamProfilerExtension, show_extension=True)
+        create_extension(dashboard, BeamProfilerExtension, show_extension=True,
+                         with_dashboard_toolbar=False)
 
     win.mainwindow.setVisible(False)
-
-    app.lastWindowClosed.connect(dashboard.quit_fun)
 
     sys.exit(app.exec())
 
