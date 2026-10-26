@@ -153,7 +153,7 @@ class BeamProfilerExtension(CustomExt):
             DAQ_Viewer(dockarea, title='Camera', daq_type='DAQ2D')
 
     def setup_menus_and_toolbars(self, menubar: QtWidgets.QMenuBar = None):
-        #self.create_dashboard_toolbar(add_break=False)
+        self.create_dashboard_toolbar(add_break=False)
         file_menu = self.add_menu('file', 'File', parent_menu=menubar)
 
     def setup_actions(self):
