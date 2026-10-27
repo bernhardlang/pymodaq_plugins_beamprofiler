@@ -1,5 +1,7 @@
-from qtpy import QtWidgets
-from qtpy.QtCore import QSettings, QByteArray
+import numpy as np
+import pyqtgraph as pg
+from qtpy import QtWidgets, QtGui
+from qtpy.QtCore import QSettings, QByteArray, Qt
 from pymodaq_data.data import DataToExport
 from pymodaq_gui import utils as gutils
 from pymodaq_gui.plotting.data_viewers.viewer2D import Viewer2D
@@ -112,6 +114,33 @@ class MyLCD(QObject):
 #<<<
 
 
+class EllipseMarker:
+    def __init__(self, plotitem, xc, yc, a, b, angle,
+                 color='r', linewidth=2, npoints=200):
+        self.plotitem = plotitem
+        self.npoints = npoints
+
+        self.item = plotitem.plot(
+            pen=pg.mkPen(color, width=linewidth),
+            connect='all',
+        )
+
+        self.set_parameters(xc, yc, a, b, angle)
+
+    def set_parameters(self, xc, yc, a, b, theta):
+        """Update ellipse parameters without replacing the plot item."""
+
+        t = np.linspace(0, 2 * np.pi, self.npoints + 1)
+
+        x = xc + a * np.cos(t) * np.cos(theta) - b * np.sin(t) * np.sin(theta)
+        y = yc + a * np.cos(t) * np.sin(theta) + b * np.sin(t) * np.cos(theta)
+
+        self.item.setData(x, y)
+
+    def remove(self):
+        self.plotitem.removeItem(self.item)
+
+
 class BeamProfilerExtension(CustomExt):
 
     params = [
@@ -127,6 +156,7 @@ class BeamProfilerExtension(CustomExt):
         settings_file_name = f'{config_dir}/{EXTENSION_NAME}.conf'
         self.qt_settings = QSettings(settings_file_name, QSettings.NativeFormat)
         self.read_settings(self.qt_settings)
+        self.marker = None
 
     def setup_docks_and_widgets(self):
         self.docks['settings'] = gutils.Dock('Settings')
@@ -243,6 +273,15 @@ class BeamProfilerExtension(CustomExt):
 
         self.target_viewer.show_data(dwa2D)
         self.lcd.setvalues(values)
+
+        if self.marker is None:
+            self.marker = EllipseMarker(
+                self.target_viewer.view.plotitem,
+                values[0][0], values[1][0], values[2][0], values[3][0],
+                values[4][0], color='y')
+        else:
+            self.marker.set_parameters(values[0][0], values[1][0], values[2][0],
+                                       values[3][0], values[4][0])
 
 
 def main():
