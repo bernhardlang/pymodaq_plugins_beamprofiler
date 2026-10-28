@@ -135,6 +135,12 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         if param.name() in self.settings_names:
             setattr(self.controller, param.name(), param.value())
             self.controller.update()
+            if param.name() == "nx":
+                data_x_axis = self.controller.x_axis()  # if possible
+                self.x_axis = Axis(data=data_x_axis, label='', units='', index=1)
+            elif param.name() == "ny":
+                data_y_axis = self.controller.y_axis()  # if possible
+                self.y_axis = Axis(data=data_y_axis, label='', units='', index=0)
 
 
 if __name__ == '__main__':

@@ -269,7 +269,21 @@ class BeamProfilerExtension(CustomExt):
         dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
         dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
 
-        values = [np.array([val]) for val in lbs.beam_size(dwa2D[0])]
+        roi = self.target_viewer.roi_manager.get_roi_from_index(0)
+        if roi is None:
+            data = dwa2D[0]
+        else:
+            x0, y0 = roi.roi.pos()
+            width, height = roi.roi.size()
+            x0, x1 = int(round(x0)), int(round(x0 + width))
+            y0, y1 = int(round(y0)), int(round(y0 + height))
+            data = dwa2D[0][y0:y1, x0:x1]
+
+        values = [np.array([val]) for val in lbs.beam_size(data)]
+    
+        if roi is not None:
+            values[0][0] += x0
+            values[1][0] += y0
 
         self.target_viewer.show_data(dwa2D)
         self.lcd.setvalues(values)
