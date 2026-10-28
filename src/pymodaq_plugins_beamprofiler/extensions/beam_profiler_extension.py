@@ -58,7 +58,7 @@ class MyLCD(QObject):
         for ind, val in enumerate(values):
             self.lcds[ind].display(val[0])
             vals.append(val)
-        self.viewer0D.show_data(DataRaw(name='LCD', data=values))
+        self.viewer0D.show_data(DataRaw(name='LCD', data=values[2:4]))
 
     def setupui(self, **kwargs):
         if 'digits' in kwargs:
@@ -125,10 +125,12 @@ class EllipseMarker:
             connect='all',
         )
 
-        self.set_parameters(xc, yc, a, b, angle)
+        self.set_parameters(xc, yc, a, b, angle / 180.0 * np.pi)
 
     def set_parameters(self, xc, yc, a, b, theta):
         """Update ellipse parameters without replacing the plot item."""
+
+        theta *= np.pi / 180.0
 
         t = np.linspace(0, 2 * np.pi, self.npoints + 1)
 
@@ -284,6 +286,8 @@ class BeamProfilerExtension(CustomExt):
         if roi is not None:
             values[0][0] += x0
             values[1][0] += y0
+
+        values[4][0] *= 180.0 / np.pi
 
         self.target_viewer.show_data(dwa2D)
         self.lcd.setvalues(values)

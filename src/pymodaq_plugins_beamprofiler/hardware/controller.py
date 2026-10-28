@@ -15,6 +15,8 @@ class MockBeamCam:
     dy:    float
     angle: float
     i0:    float
+    back:  float
+    back_fluct: float
     
     def __post_init__(self):
         self.update(self.x0, self.y0, self.dx, self.dy)
@@ -40,7 +42,9 @@ class MockBeamCam:
         self.current += 1
         if self.current == 2**16:
             self._init_noise()
-        return np.random.poisson(self.data * self.i0)
+
+        return (np.random.poisson(self.data * self.i0) / self.i0 * 2**10
+                + np.random.normal(self.back, self.back_fluct, self.data.shape))
 
     def x_axis(self):
         return self.x

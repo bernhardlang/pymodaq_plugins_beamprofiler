@@ -41,7 +41,11 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         { 'title': 'DX', 'name': 'dx', 'type': 'float', 'default': 10 },
         { 'title': 'DY', 'name': 'dy', 'type': 'float', 'default': 12 },
         { 'title': 'Angle', 'name': 'angle', 'type': 'float', 'default': 0 },
-        { 'title': 'Intensity', 'name': 'i0', 'type': 'float', 'default': 1000 },
+        { 'title': 'Intensity', 'name': 'i0', 'type': 'float', 'default': 1e4 },
+        { 'title': 'Background [LSB]', 'name': 'back', 'type': 'float',
+          'default': 40 },
+        { 'title': 'Background Fluctuation [LSB]', 'name': 'back_fluct',
+          'type': 'float', 'default': 10 },
     ]
 
     params = comon_parameters + device_params
@@ -77,7 +81,9 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
                             self.settings['dx'],
                             self.settings['dy'],
                             self.settings['angle'],
-                            self.settings['i0'])
+                            self.settings['i0'],
+                            self.settings['back'],
+                            self.settings['back_fluct'])
             initialized = self.controller.open_communication()
         else:
             self.controller = controller
@@ -113,7 +119,6 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         kwargs: dict
             others optionals arguments
         """
-        QThread.msleep(10)
         data = self.controller.grab_image()
         dfp = DataFromPlugins(name='Mock1', data=data, dim='Data2D',
                               labels=['label1'],
