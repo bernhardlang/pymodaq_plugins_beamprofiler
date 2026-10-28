@@ -143,6 +143,30 @@ class EllipseMarker:
         self.plotitem.removeItem(self.item)
 
 
+class RectangleMarker:
+    def __init__(self, plotitem, x0, y0, x1, y1,
+                 color='r', linewidth=2):
+        self.plotitem = plotitem
+
+        self.item = plotitem.plot(
+            pen=pg.mkPen(color, width=linewidth),
+            connect='all',
+        )
+
+        self.set_parameters(x0, y0, x1, y1)
+
+    def set_parameters(self, x0, y0, x1, y1):
+        """Update rect parameters without replacing the plot item."""
+
+        x = [x0, x1, x1, x0, x0]
+        y = [y0, y0, y1, y1, y0]
+
+        self.item.setData(x, y)
+
+    def remove(self):
+        self.plotitem.removeItem(self.item)
+
+
 class BeamProfilerExtension(CustomExt):
 
     params = [
@@ -159,6 +183,8 @@ class BeamProfilerExtension(CustomExt):
         self.qt_settings = QSettings(settings_file_name, QSettings.NativeFormat)
         self.read_settings(self.qt_settings)
         self.marker = None
+        self.x = None
+        self.y = None
 
     def setup_docks_and_widgets(self):
         self.docks['settings'] = gutils.Dock('Settings')
@@ -261,6 +287,8 @@ class BeamProfilerExtension(CustomExt):
 
     def start_profiling(self):
         self.adjust_actions(True)
+        self.x = None
+        self.y = None
         self.camera.grab()
 
     def stop_profiling(self):
@@ -268,6 +296,99 @@ class BeamProfilerExtension(CustomExt):
         self.camera.stop_grab()
 
     def take_data(self, data: DataToExport):
+        dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
+        dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
+
+        raw_data = dwa2D.data[0]
+
+        if self.x is None:
+            self.x = dwa2D.axes[0].get_data()
+            self.y = dwa2D.axes[1].get_data()
+
+        xm, ym = np.unravel_index(np.argmax(raw_data, axis=None), raw_data.shape)
+
+        slice_x = raw_data[xm,:]
+        norm_x = sum(slice_x)
+        slice_y = raw_data[:,ym]
+        norm_y = sum(slice_y)
+        x0 = int(np.dot(self.x, slice_x / norm_x) + 0.5)
+        y0 = int(np.dot(self.y, slice_y / norm_y)+ 0.5)
+        x1 = np.sqrt(np.dot((self.x - x0)**2, slice_x / norm_x))
+        y1 = np.sqrt(np.dot((self.y - y0)**2, slice_y / norm_y))
+
+        data = raw_data[int(x0 - 2 * x1):int(x0 + 2 *x1),
+                        int(y0 - 2 * y1):int(y0 + 2 *y1)]
+
+        values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
+        #values = [np.array([val]) for val in lbs.beam_size(data)]
+    
+        values[4][0] *= 180.0 / np.pi
+
+        self.target_viewer.show_data(dwa2D)
+        self.lcd.setvalues(values)
+
+        if self.marker is None:
+            self.marker = EllipseMarker(
+                self.target_viewer.view.plotitem, x0, y0, x1, y1, 0,
+                color='y')
+            self.roi = RectangleMarker(self.target_viewer.view.plotitem,
+                                       x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
+                                       y0 + 2 * y1)
+        else:
+            self.marker.set_parameters(x0, y0, x1, y1, 0)
+            self.roi.set_parameters(x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
+                                    y0 + 2 * y1)
+
+
+    def take_data_moments(self, data: DataToExport):
+        dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
+        dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
+
+        if self.x is None:
+            self.x = dwa2D.axes[0].get_data()
+            self.y = dwa2D.axes[1].get_data()
+
+        A = sum(sum(dwa2D))
+        x0 = np.dot(dwa2D.data, self.x) / A
+        y0 = np.dot(self.y, dwa2D.data) / A
+
+        xc = self.x - x0
+        yc = self.y - y0
+        c = np.dot(xc, yc)
+
+        a = sum(np.dot(dwa.data, xc))
+        b = sum(sum(dwa2D.data * c))
+        d = sum(np.dot(dwa.data, yc))
+
+        p2 = (a + d) / 2
+        sq = np.sqrt(p2 - a * d + b**2)
+        lambda1 = p2 + sq
+        lambda2 = p2 - sq
+        if c:
+            v1 = [lambda1 - d, c]
+            v2 = [lambda2 - d, c]
+        elif b:
+            v1 = [b, lambda1 - 1]
+            v2 = [b, lambda2 - 1]
+        else:
+            v1 = [1, 0]
+            v2 = [0, 1]
+
+        angle = np.arctan(v1[1] / v1[0]) if abs(v1[0]) > 1e-3 else np.pi/2
+        self.target_viewer.show_data(dwa2D)
+        #self.lcd.setvalues(values)
+
+        if self.marker is None:
+            self.marker = EllipseMarker(
+                self.target_viewer.view.plotitem,
+                x0, y0, np.sqrt(lambda1), np.sqrt(lambda2), angle,
+                color='y')
+        else:
+            self.marker.set_parameters(x0, y0, np.sqrt(lambda1),
+                                       np.sqrt(lambda2), angle)
+
+
+    def take_data_lbs(self, data: DataToExport):
         dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
         dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
 
@@ -300,7 +421,6 @@ class BeamProfilerExtension(CustomExt):
         else:
             self.marker.set_parameters(values[0][0], values[1][0], values[2][0],
                                        values[3][0], values[4][0])
-
 
 def main():
     """Run the extension on its own: loads a Dashboard (hidden), then the
