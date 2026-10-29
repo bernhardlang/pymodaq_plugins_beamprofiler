@@ -2,7 +2,7 @@ import numpy as np
 import pyqtgraph as pg
 from qtpy import QtWidgets, QtGui
 from qtpy.QtCore import QSettings, QByteArray, Qt
-from pymodaq_data.data import DataToExport
+from pymodaq_data.data import DataToExport, Axis
 from pymodaq_gui import utils as gutils
 from pymodaq_gui.plotting.data_viewers.viewer2D import Viewer2D
 from pymodaq_gui.utils.widgets.lcd import LCD
@@ -178,6 +178,7 @@ class BeamProfilerExtension(CustomExt):
 
     def __init__(self, parent: gutils.DockArea, dashboard,
                  with_dashboard_toolbar=True):
+        self.camera = None
         super().__init__(parent, dashboard, add_toolbar_break=False)
         self.setup_ui()
         config_dir = get_set_config_dir("gui-state", user=True)
@@ -198,10 +199,10 @@ class BeamProfilerExtension(CustomExt):
         self.cam_viewer = Viewer2D(QtWidgets.QWidget())
         self.docks['viewer2D'].addWidget(self.cam_viewer.parent)
 
-        self.docks['ROI-viewer2D'] = gutils.Dock('ROI Data')
-        self.dockarea.addDock(self.docks['ROI-viewer2D'])
-        self.roi_viewer = Viewer2D(QtWidgets.QWidget())
-        self.docks['ROI-viewer2D'].addWidget(self.roi_viewer.parent)
+        #self.docks['ROI-viewer2D'] = gutils.Dock('ROI Data')
+        #self.dockarea.addDock(self.docks['ROI-viewer2D'])
+        #self.roi_viewer = Viewer2D(QtWidgets.QWidget())
+        #self.docks['ROI-viewer2D'].addWidget(self.roi_viewer.parent)
 
         self.docks['lcds'] = gutils.Dock('Beam properties')
         self.dockarea.addDock(self.docks['lcds'], 'right',
@@ -236,6 +237,10 @@ class BeamProfilerExtension(CustomExt):
 
     def do_things_after_experiment_set(self, experiment_name: str,
                                        show_dashboard: bool = None):
+
+        breakpoint()
+        if self.camera is not None:
+            return
         super().do_things_after_experiment_set(experiment_name, show_dashboard)
         self.camera = \
             self.modules_manager.get_mod_from_name('Beam-Camera',
@@ -304,8 +309,10 @@ class BeamProfilerExtension(CustomExt):
 
     def get_moments(self, data, xm, ym):
         slice_x = data[xm,:]
+        #slice_x = np.where(slice_x >= 0, slice_x, 0)
         norm_x = sum(slice_x)
         slice_y = data[:,ym]
+        #slice_y = np.where(slice_y >= 0, slice_y, 0)
         norm_y = sum(slice_y)
         x0 = int(np.dot(self.x, slice_x / norm_x) + 0.5)
         y0 = int(np.dot(self.y, slice_y / norm_y)+ 0.5)
@@ -314,10 +321,19 @@ class BeamProfilerExtension(CustomExt):
         return x0, y0, x1, y1, slice_x
 
     def take_data(self, data: DataToExport):
+        if not hasattr(self, 'grab_count'):
+            self.grab_count = 1
+        print("extension:", self.grab_count)
+        self.grab_count += 1
+
+        if np.min(data) < 0:
+            breakpoint()
         dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
         dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
 
         raw_data = dwa2D.data[0]
+        if np.min(raw_data) < 0:
+            breakpoint()
 
         if self.x is None:
             self.x = dwa2D.axes[0].get_data()
@@ -327,30 +343,39 @@ class BeamProfilerExtension(CustomExt):
 
         x0, y0, x1, y1, slice_x = self.get_moments(raw_data, xm, ym)
 
-        back = sum(slice_x[:int(x0 - x1)]) / int(x0 - x1)
+        try:
+            back = sum(slice_x[:int(x0 - x1)]) / int(x0 - x1)
+        except:
+            breakpoint()
         raw_data -= back
-        raw_data = np.where(raw_data > 0, raw_data, 0)
+        raw_data = np.where(raw_data < 0, 0, raw_data)
 
         x0, y0, x1, y1, slice_x = self.get_moments(raw_data, xm, ym)
 
-        data = raw_data[int(x0 - 2 * x1):int(x0 + 2 * x1),
-                        int(y0 - 2 * y1):int(y0 + 2 * y1)]
+        x_from = int(x0 - 2 * x1)
+        x_to = int(x0 + 2 * x1)
+        y_from = int(y0 - 2 * y1)
+        y_to = int(y0 + 2 * y1)
+        roi_data = raw_data[y_from:y_to,x_from:x_to]
 
         values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
-        #values = [np.array([val]) for val in lbs.beam_size(data)]
+        #values = [np.array([val]) for val in lbs.beam_size(roi_data)]
 
         values[4][0] *= 180.0 / np.pi
 
         self.cam_viewer.show_data(dwa2D)
         self.lcd.setvalues(values)
 
-        dfp = DataFromPlugins(name='ROI', data=[data],
+        data_x_axis = np.array([i for i in range(x_from, x_to)])
+        data_y_axis = np.array([i for i in range(y_from, y_to)])
+        roi_x_axis = Axis(data=data_x_axis, label='', units='', index=1)
+        roi_y_axis = Axis(data=data_y_axis, label='', units='', index=0)
+        
+        dfp = DataFromPlugins(name='ROI', data=[roi_data],
                               dim='Data2D', labels=['ROI'],
-                              axes=[np.array([i for i in
-                                              range(x0 - 2 * x, x0 + 2 * x)]),
-                                    np.array([i for i in
-                                              range(x0 - 2 * x, x0 + 2 * x)])])
-        self.cam_viewer.show_data(DataToExport('roi', data=[dfp]))
+                              axes=[roi_x_axis, roi_y_axis])
+
+        #self.roi_viewer.show_data(dfp)
 
         if self.marker is None:
             self.marker = EllipseMarker(

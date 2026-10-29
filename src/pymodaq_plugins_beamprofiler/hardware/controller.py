@@ -43,8 +43,10 @@ class MockBeamCam:
         if self.current == 2**16:
             self._init_noise()
 
-        return (np.random.poisson(self.data * self.i0) / self.i0 * 2**10
-                + np.random.normal(self.back, self.back_fluct, self.data.shape))
+        #data = (np.random.poisson(self.data * self.i0) / self.i0 * 2**10
+        #        + np.random.normal(self.back, self.back_fluct, self.data.shape))
+        return np.random.poisson(self.data * self.i0) / self.i0 * 2**10
+        return data.clip(0, 2**10)
 
     def x_axis(self):
         return self.x

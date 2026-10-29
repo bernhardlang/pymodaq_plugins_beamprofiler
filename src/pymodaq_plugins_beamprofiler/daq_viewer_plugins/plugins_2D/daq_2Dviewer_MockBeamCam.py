@@ -1,5 +1,5 @@
 import numpy as np
-
+from copy import deepcopy
 from qtpy.QtCore import QThread
 from pymodaq_utils.utils import ThreadCommand
 from pymodaq_data.data import DataToExport, Axis
@@ -119,10 +119,18 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         kwargs: dict
             others optionals arguments
         """
+        if not hasattr(self, 'grab_count'):
+            self.grab_count = 1
+        print("plugin:", self.grab_count)
+        self.grab_count += 1
+
         data = self.controller.grab_image()
-        dfp = DataFromPlugins(name='Mock1', data=data, dim='Data2D',
-                              labels=['label1'],
-                              axes=[self.x_axis, self.y_axis])
+        if np.min(data) < 0:
+            breakpoint()
+
+        dfp = DataFromPlugins(name='Mock1', data=[data], dim='Data2D',
+                              labels=['label1'], axes=[self.x_axis, self.y_axis])
+
         self.dte_signal.emit(DataToExport('mockbeamcam', data=[dfp]))
 
     def stop(self):
