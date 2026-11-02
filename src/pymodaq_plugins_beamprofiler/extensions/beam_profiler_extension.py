@@ -1,7 +1,7 @@
 import numpy as np
 import pyqtgraph as pg
 from qtpy import QtWidgets, QtGui
-from qtpy.QtCore import QSettings, QByteArray, Qt
+from qtpy.QtCore import QSettings, QByteArray, Qt, QRectF
 from pymodaq_data.data import DataToExport, Axis
 from pymodaq_gui import utils as gutils
 from pymodaq_gui.plotting.data_viewers.viewer2D import Viewer2D
@@ -156,8 +156,7 @@ class EllipseMarker:
 
 
 class RectangleMarker:
-    def __init__(self, plotitem, roi_data: ROIData,
-                 color='r', linewidth=2):
+    def __init__(self, plotitem, roi_data: QRectF, color='r', linewidth=2):
         self.plotitem = plotitem
 
         self.item = plotitem.plot(
@@ -165,9 +164,9 @@ class RectangleMarker:
             connect='all',
         )
 
-        self.set_parameters(roi_data: ROIData)
+        self.set_parameters(roi_data)
 
-    def set_parameters(self, roi: ROIData):
+    def set_parameters(self, roi: QRectF):
         """Update rect parameters without replacing the plot item."""
 
         x = [roi.left(), roi.right(), roi.right(), roi.left(), roi.left()]
