@@ -119,11 +119,6 @@ class DAQ_2DViewer_MockBeamCam(DAQ_Viewer_base):
         kwargs: dict
             others optionals arguments
         """
-        if not hasattr(self, 'grab_count'):
-            self.grab_count = 1
-        print("plugin:", self.grab_count)
-        self.grab_count += 1
-
         data = self.controller.grab_image()
         if np.min(data) < 0:
             breakpoint()

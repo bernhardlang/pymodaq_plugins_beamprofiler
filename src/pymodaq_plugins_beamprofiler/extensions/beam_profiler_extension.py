@@ -117,8 +117,9 @@ class MyLCD(QObject):
 
 
 class EllipseMarker:
-    def __init__(self, plotitem, xc, yc, a, b, angle,
+    def __init__(self, plotitem, roi_data: QRectF, angle: float,
                  color='r', linewidth=2, npoints=200):
+        self.angle = angle / 180.0 * np.pi
         self.plotitem = plotitem
         self.npoints = npoints
 
@@ -127,17 +128,26 @@ class EllipseMarker:
             connect='all',
         )
 
-        self.set_parameters(xc, yc, a, b, angle / 180.0 * np.pi)
+        self.set_parameters(roi_data, self.angle)
 
-    def set_parameters(self, xc, yc, a, b, theta):
+    def set_parameters(self, roi_data: QRectF, angle: float):
         """Update ellipse parameters without replacing the plot item."""
 
-        theta *= np.pi / 180.0
-
+        cos_theta = np.cos(angle)
+        sin_theta = np.sin(angle)
         t = np.linspace(0, 2 * np.pi, self.npoints + 1)
+        cos_t = np.cos(t)
+        sin_t = np.sin(t)
+        x0 = roi_data.center().x()
+        y0 = roi_data.center().y()
+        a = roi_data.width() / 2
+        b = roi_data.height() / 2
 
-        x = xc + a * np.cos(t) * np.cos(theta) - b * np.sin(t) * np.sin(theta)
-        y = yc + a * np.cos(t) * np.sin(theta) + b * np.sin(t) * np.cos(theta)
+        x = x0 + cos_theta * (a * cos_t - b * sin_t) \
+            - sin_theta * (a * sin_t + b * cos_t)
+        
+        y = y0 + sin_theta * (a * cos_t - b * sin_t) \
+            + cos_theta * (a * sin_t + b * cos_t)
 
         self.item.setData(x, y)
 
@@ -146,7 +156,7 @@ class EllipseMarker:
 
 
 class RectangleMarker:
-    def __init__(self, plotitem, x0, y0, x1, y1,
+    def __init__(self, plotitem, roi_data: ROIData,
                  color='r', linewidth=2):
         self.plotitem = plotitem
 
@@ -155,14 +165,13 @@ class RectangleMarker:
             connect='all',
         )
 
-        self.set_parameters(x0, y0, x1, y1)
+        self.set_parameters(roi_data: ROIData)
 
-    def set_parameters(self, x0, y0, x1, y1):
+    def set_parameters(self, roi: ROIData):
         """Update rect parameters without replacing the plot item."""
 
-        x = [x0, x1, x1, x0, x0]
-        y = [y0, y0, y1, y1, y0]
-
+        x = [roi.left(), roi.right(), roi.right(), roi.left(), roi.left()]
+        y = [roi.bottom(), roi.bottom(), roi.top(), roi.top(), roi.bottom()]
         self.item.setData(x, y)
 
     def remove(self):
@@ -199,11 +208,6 @@ class BeamProfilerExtension(CustomExt):
         self.cam_viewer = Viewer2D(QtWidgets.QWidget())
         self.docks['viewer2D'].addWidget(self.cam_viewer.parent)
 
-        #self.docks['ROI-viewer2D'] = gutils.Dock('ROI Data')
-        #self.dockarea.addDock(self.docks['ROI-viewer2D'])
-        #self.roi_viewer = Viewer2D(QtWidgets.QWidget())
-        #self.docks['ROI-viewer2D'].addWidget(self.roi_viewer.parent)
-
         self.docks['lcds'] = gutils.Dock('Beam properties')
         self.dockarea.addDock(self.docks['lcds'], 'right',
                               self.docks['viewer2D'])
@@ -238,9 +242,6 @@ class BeamProfilerExtension(CustomExt):
     def do_things_after_experiment_set(self, experiment_name: str,
                                        show_dashboard: bool = None):
 
-        breakpoint()
-        if self.camera is not None:
-            return
         super().do_things_after_experiment_set(experiment_name, show_dashboard)
         self.camera = \
             self.modules_manager.get_mod_from_name('Beam-Camera',
@@ -307,87 +308,73 @@ class BeamProfilerExtension(CustomExt):
         self.adjust_actions(False)
         self.camera.stop_grab()
 
-    def get_moments(self, data, xm, ym):
+    def get_roi(self, data, xm, ym):
+        """Calculate first and second centered moment"""
+
         slice_x = data[xm,:]
-        #slice_x = np.where(slice_x >= 0, slice_x, 0)
         norm_x = sum(slice_x)
         slice_y = data[:,ym]
-        #slice_y = np.where(slice_y >= 0, slice_y, 0)
         norm_y = sum(slice_y)
         x0 = int(np.dot(self.x, slice_x / norm_x) + 0.5)
         y0 = int(np.dot(self.y, slice_y / norm_y)+ 0.5)
-        x1 = np.sqrt(np.dot((self.x - x0)**2, slice_x / norm_x))
-        y1 = np.sqrt(np.dot((self.y - y0)**2, slice_y / norm_y))
-        return x0, y0, x1, y1, slice_x
+        dx = 2 * np.sqrt(np.dot((self.x - x0)**2, slice_x / norm_x))
+        dy = 2 * np.sqrt(np.dot((self.y - y0)**2, slice_y / norm_y))
+        return QRectF(x0 - dx, y0 - dx, x0 + dx, y0 + dy), slice_x
 
     def take_data(self, data: DataToExport):
-        if not hasattr(self, 'grab_count'):
-            self.grab_count = 1
-        print("extension:", self.grab_count)
-        self.grab_count += 1
-
-        if np.min(data) < 0:
-            breakpoint()
         dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
         dwa2D = dte_raw.get_data_from_dim('Data2D')[0]  #take the first 2D dwa
-
         raw_data = dwa2D.data[0]
-        if np.min(raw_data) < 0:
-            breakpoint()
 
         if self.x is None:
             self.x = dwa2D.axes[0].get_data()
             self.y = dwa2D.axes[1].get_data()
 
+        # get (xm,ym) of absolute maximum 
         xm, ym = np.unravel_index(np.argmax(raw_data, axis=None), raw_data.shape)
 
-        x0, y0, x1, y1, slice_x = self.get_moments(raw_data, xm, ym)
+        # first guess of moments on horizontal and vertical lines at (xm,ym)
+        raw_roi, slice_x = self.get_roi(raw_data, xm, ym)
 
-        try:
-            back = sum(slice_x[:int(x0 - x1)]) / int(x0 - x1)
-        except:
-            breakpoint()
+        # background subtracted but keep all positive (moments!)
+        back = sum(slice_x[:int(x0 - x1)]) / int(x0 - x1)
         raw_data -= back
         raw_data = np.where(raw_data < 0, 0, raw_data)
 
-        x0, y0, x1, y1, slice_x = self.get_moments(raw_data, xm, ym)
+        # second guess
+        back_roi, slice_x = self.get_moments(raw_data, xm, ym)
 
-        x_from = int(x0 - 2 * x1)
-        x_to = int(x0 + 2 * x1)
-        y_from = int(y0 - 2 * y1)
-        y_to = int(y0 + 2 * y1)
-        roi_data = raw_data[y_from:y_to,x_from:x_to]
+        roi_data = raw_data[back_roi.bottom():back_roi.top(),
+                            back_roi.left():back_roi.right()]
 
-        values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
-        #values = [np.array([val]) for val in lbs.beam_size(roi_data)]
+        #values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
+        beam_size_values = lbs.beam_size(roi_data)
 
-        values[4][0] *= 180.0 / np.pi
+        lcd_values = [np.array([val]) for val in beam_size_values]
+        lcd_values[4][0] *= 180.0 / np.pi
+
+        lcd_roi = \
+            QRectF(lcd_values[0], lcd_values[1], lcd_values[2], lcd_values[3])
 
         self.cam_viewer.show_data(dwa2D)
-        self.lcd.setvalues(values)
-
-        data_x_axis = np.array([i for i in range(x_from, x_to)])
-        data_y_axis = np.array([i for i in range(y_from, y_to)])
-        roi_x_axis = Axis(data=data_x_axis, label='', units='', index=1)
-        roi_y_axis = Axis(data=data_y_axis, label='', units='', index=0)
-        
-        dfp = DataFromPlugins(name='ROI', data=[roi_data],
-                              dim='Data2D', labels=['ROI'],
-                              axes=[roi_x_axis, roi_y_axis])
-
-        #self.roi_viewer.show_data(dfp)
+        self.lcd.setvalues(lcd_values)
 
         if self.marker is None:
-            self.marker = EllipseMarker(
-                self.cam_viewer.view.plotitem, x0, y0, x1, y1, 0,
-                color='y')
-            self.roi = RectangleMarker(self.cam_viewer.view.plotitem,
-                                       x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
-                                       y0 + 2 * y1)
+            self.marker = EllipseMarker(self.cam_viewer.view.plotitem,
+                                        lcd_roi, color='y')
+            here 
+            self.roi1 = RectangleMarker(self.cam_viewer.view.plotitem, x_from,
+                                        y_from, x_to, y_to)
+            self.roi2 = RectangleMarker(self.cam_viewer.view.plotitem,
+                                        x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
+                                        y0 + 2 * y1, color='g')
         else:
-            self.marker.set_parameters(x0, y0, x1, y1, 0)
-            self.roi.set_parameters(x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
-                                    y0 + 2 * y1)
+            self.marker.set_parameters(beam_size_values[0], beam_size_values[1],
+                                       beam_size_values[2], beam_size_values[3],
+                                       beam_size_values[4])
+            self.roi1.set_parameters(x_from, y_from, x_to, y_to)
+            self.roi2.set_parameters(x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
+                                     y0 + 2 * y1)
 
 
     def take_data_moments(self, data: DataToExport):
