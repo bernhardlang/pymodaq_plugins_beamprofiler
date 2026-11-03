@@ -1,7 +1,7 @@
 import numpy as np
 import pyqtgraph as pg
 from qtpy import QtWidgets, QtGui
-from qtpy.QtCore import QSettings, QByteArray, Qt, QRectF
+from qtpy.QtCore import QSettings, QByteArray, Qt, QRect, QRectF
 from pymodaq_data.data import DataToExport, Axis
 from pymodaq_gui import utils as gutils
 from pymodaq_gui.plotting.data_viewers.viewer2D import Viewer2D
@@ -117,7 +117,7 @@ class MyLCD(QObject):
 
 
 class EllipseMarker:
-    def __init__(self, plotitem, roi_data: QRectF, angle: float,
+    def __init__(self, plotitem, roi_data: QRectF, angle: float=0,
                  color='r', linewidth=2, npoints=200):
         self.angle = angle / 180.0 * np.pi
         self.plotitem = plotitem
@@ -182,6 +182,8 @@ class BeamProfilerExtension(CustomExt):
     params = [
         { 'title': 'Refresh rate [s]', 'name': 'refresh', 'type': 'float',
           'min': 0.1, 'default': 1 },
+        { 'title': 'Show ROI [s]', 'name': 'show_roi', 'type': 'bool',
+          'default': False },
     ]
 
     def __init__(self, parent: gutils.DockArea, dashboard,
@@ -207,6 +209,11 @@ class BeamProfilerExtension(CustomExt):
         self.cam_viewer = Viewer2D(QtWidgets.QWidget())
         self.docks['viewer2D'].addWidget(self.cam_viewer.parent)
 
+        self.docks['ROIviewer'] = gutils.Dock('ROI Data')
+        self.dockarea.addDock(self.docks['ROIviewer'])
+        self.roi_viewer = Viewer2D(QtWidgets.QWidget())
+        self.docks['ROIviewer'].addWidget(self.roi_viewer.parent)
+
         self.docks['lcds'] = gutils.Dock('Beam properties')
         self.dockarea.addDock(self.docks['lcds'], 'right',
                               self.docks['viewer2D'])
@@ -215,11 +222,11 @@ class BeamProfilerExtension(CustomExt):
                   labels=['X', 'Y', 'dx', 'dy', 'theta'])
         self.docks['lcds'].addWidget(self.lcd.parent)
 
-        cam_window = QtWidgets.QMainWindow()
-        dockarea = gutils.DockArea()
-        cam_window.setCentralWidget(dockarea)
-        self.camera_viewer = \
-            DAQ_Viewer(dockarea, title='Camera', daq_type='DAQ2D')
+        #cam_window = QtWidgets.QMainWindow()
+        #dockarea = gutils.DockArea()
+        #cam_window.setCentralWidget(dockarea)
+        #self.camera_viewer = \
+        #    DAQ_Viewer(dockarea, title='Camera', daq_type='DAQ2D')
 
     def setup_menus_and_toolbars(self, menubar: QtWidgets.QMenuBar = None):
         self.create_dashboard_toolbar(add_break=False)
@@ -293,7 +300,7 @@ class BeamProfilerExtension(CustomExt):
         self._actions["start_profiling"].setEnabled(not measuring)
         self._actions["snap"].setEnabled(not measuring)
         self._actions["stop_profiling"].setEnabled(measuring)
-        
+
     def snap(self):
         self.camera.snap()
 
@@ -316,9 +323,11 @@ class BeamProfilerExtension(CustomExt):
         norm_y = sum(slice_y)
         x0 = int(np.dot(self.x, slice_x / norm_x) + 0.5)
         y0 = int(np.dot(self.y, slice_y / norm_y)+ 0.5)
-        dx = 2 * np.sqrt(np.dot((self.x - x0)**2, slice_x / norm_x))
-        dy = 2 * np.sqrt(np.dot((self.y - y0)**2, slice_y / norm_y))
-        return QRectF(x0 - dx, y0 - dx, x0 + dx, y0 + dy), slice_x
+        dx = np.sqrt(np.dot((self.x - x0)**2, slice_x / norm_x))
+        dy = np.sqrt(np.dot((self.y - y0)**2, slice_y / norm_y))
+        return QRect(int(x0 - 4 * dx), int(y0 - 4 * dy), int(8 * dx),
+                     int(8 * dy)), \
+            slice_x
 
     def take_data(self, data: DataToExport):
         dte_raw = data.get_data_from_source('raw')  # to avoid selecting a 2D ROI
@@ -336,44 +345,49 @@ class BeamProfilerExtension(CustomExt):
         raw_roi, slice_x = self.get_roi(raw_data, xm, ym)
 
         # background subtracted but keep all positive (moments!)
-        back = sum(slice_x[:int(x0 - x1)]) / int(x0 - x1)
+        background_slice = slice_x[:int(raw_roi.left())]
+        back = sum(background_slice) / raw_roi.left()
         raw_data -= back
         raw_data = np.where(raw_data < 0, 0, raw_data)
 
         # second guess
-        back_roi, slice_x = self.get_moments(raw_data, xm, ym)
+        back_roi, slice_x = self.get_roi(raw_data, xm, ym)
 
-        roi_data = raw_data[back_roi.bottom():back_roi.top(),
+        roi_data = raw_data[back_roi.top():back_roi.bottom(),
                             back_roi.left():back_roi.right()]
 
         #values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
-        beam_size_values = lbs.beam_size(roi_data)
+        beam_size_values = list(lbs.beam_size(roi_data))
 
+        lbs_roi = \
+            QRectF(beam_size_values[0] - beam_size_values[2] / 2,
+                   beam_size_values[1] - beam_size_values[3] / 2,
+                   beam_size_values[2], beam_size_values[3])
+x_data =         self.x = np.linspace(0, self.nx - 1, self.nx)
+
+        x_axis = Axis(data=data_x_axis, label='', units='', index=0)
+
+        dfp = DataFromPlugins(name='LBS', data=[roi_data], dim='Data2D',
+                              labels=['roi'], axes=[x_axis, y_axis])
+
+        dwa_roi = DataToExport('lbs', data=[dfp])
+
+        beam_size_values[0] += back_roi.left()
+        beam_size_values[1] += back_roi.top()
         lcd_values = [np.array([val]) for val in beam_size_values]
         lcd_values[4][0] *= 180.0 / np.pi
 
-        lcd_roi = \
-            QRectF(lcd_values[0], lcd_values[1], lcd_values[2], lcd_values[3])
-
         self.cam_viewer.show_data(dwa2D)
+        self.roi_viewer.show_data(dwa_roi)
         self.lcd.setvalues(lcd_values)
 
         if self.marker is None:
-            self.marker = EllipseMarker(self.cam_viewer.view.plotitem,
-                                        lcd_roi, color='y')
-            here 
-            self.roi1 = RectangleMarker(self.cam_viewer.view.plotitem, x_from,
-                                        y_from, x_to, y_to)
-            self.roi2 = RectangleMarker(self.cam_viewer.view.plotitem,
-                                        x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
-                                        y0 + 2 * y1, color='g')
+            self.marker = EllipseMarker(self.roi_viewer.view.plotitem,
+                                        lbs_roi, color='y')
+            self.roi = RectangleMarker(self.cam_viewer.view.plotitem, raw_roi)
         else:
-            self.marker.set_parameters(beam_size_values[0], beam_size_values[1],
-                                       beam_size_values[2], beam_size_values[3],
-                                       beam_size_values[4])
-            self.roi1.set_parameters(x_from, y_from, x_to, y_to)
-            self.roi2.set_parameters(x0 - 2 * x1, y0 - 2 * y1, x0 + 2 * x1,
-                                     y0 + 2 * y1)
+            self.marker.set_parameters(lbs_roi)
+            self.roi.set_parameters(raw_roi)
 
 
     def take_data_moments(self, data: DataToExport):
