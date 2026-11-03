@@ -130,7 +130,7 @@ class EllipseMarker:
 
         self.set_parameters(roi_data, self.angle)
 
-    def set_parameters(self, roi_data: QRectF, angle: float):
+    def set_parameters(self, roi_data: QRectF, angle: float=0):
         """Update ellipse parameters without replacing the plot item."""
 
         cos_theta = np.cos(angle)
@@ -356,6 +356,15 @@ class BeamProfilerExtension(CustomExt):
         roi_data = raw_data[back_roi.top():back_roi.bottom(),
                             back_roi.left():back_roi.right()]
 
+        x_data = np.linspace(0, back_roi.width() - 1, back_roi.width())
+        x_axis = Axis(data=x_data, label='', units='', index=0)
+        y_data = np.linspace(0, back_roi.height() - 1, back_roi.height())
+        y_axis = Axis(data=y_data, label='', units='', index=1)
+        dfp = DataFromPlugins(name='LBS', data=[roi_data], dim='Data2D',
+                              labels=['roi'], axes=[x_axis, y_axis])
+        dwa_roi = DataToExport('lbs', data=[dfp])
+        self.roi_viewer.show_data(dfp)
+
         #values = [np.array([val]) for val in [x0, y0, x1, y1, 0]]
         beam_size_values = list(lbs.beam_size(roi_data))
 
@@ -363,14 +372,6 @@ class BeamProfilerExtension(CustomExt):
             QRectF(beam_size_values[0] - beam_size_values[2] / 2,
                    beam_size_values[1] - beam_size_values[3] / 2,
                    beam_size_values[2], beam_size_values[3])
-x_data =         self.x = np.linspace(0, self.nx - 1, self.nx)
-
-        x_axis = Axis(data=data_x_axis, label='', units='', index=0)
-
-        dfp = DataFromPlugins(name='LBS', data=[roi_data], dim='Data2D',
-                              labels=['roi'], axes=[x_axis, y_axis])
-
-        dwa_roi = DataToExport('lbs', data=[dfp])
 
         beam_size_values[0] += back_roi.left()
         beam_size_values[1] += back_roi.top()
@@ -378,7 +379,6 @@ x_data =         self.x = np.linspace(0, self.nx - 1, self.nx)
         lcd_values[4][0] *= 180.0 / np.pi
 
         self.cam_viewer.show_data(dwa2D)
-        self.roi_viewer.show_data(dwa_roi)
         self.lcd.setvalues(lcd_values)
 
         if self.marker is None:
